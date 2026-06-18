@@ -31,3 +31,12 @@ class NotImplementedYet(BaseLokiException):
         super(NotImplementedYet, self).__init__(
             "Method {} not implemented yet".format(method)
         )
+
+
+class PushError(BaseLokiException):
+    def __init__(self, status_code, response_text):
+        self.status_code = status_code
+        super(PushError, self).__init__(
+            "Failed to push logs to Loki: {} - {}".format(
+                status_code, response_text)
+        )

@@ -236,6 +236,8 @@ class LokiClient(object):
                 "Failed to push logs: %d - %s",
                 response.status_code, response.text
             )
+            raise exceptions.PushError(
+                response.status_code, response.text)
 
     def delete_by_query(self, query, begin, end):
         url = f"{self._base_url}/delete"
