@@ -260,7 +260,7 @@ class TestLokiClient(unittest.TestCase):
         mock_requests.post.return_value = mock_response
         initial_points = {"proj1": [["ts1", "log1"], ["ts2", "log2"]]}
         self.client._points = dict(initial_points)
-        self.client.push()
+        self.assertRaises(exceptions.PushError, self.client.push)
         self.assertEqual(self.client._points, initial_points)
         expected_msg = "Failed to push logs: 400 - Bad Request"
         mock_log.error.assert_called_once()
