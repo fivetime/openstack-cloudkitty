@@ -321,7 +321,7 @@ class LokiClient(object):
 
     def add_point(self, point, type, start, end):
         """Append a point to the client, grouped by project_id."""
-        timestamp_ns = int(end.timestamp() * 1_000_000_000)
+        timestamp_ns = int(start.timestamp() * 1_000_000_000)
         timestamp = str(timestamp_ns)
 
         # Extract project_id from point.groupby (use None if not present)
