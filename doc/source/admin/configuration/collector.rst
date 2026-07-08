@@ -376,6 +376,16 @@ Gnocchi
   when retrieving measures from gnocchi. Must be one of ``min``, ``max``,
   ``mean``, ``rate:min``, ``rate:max``, ``rate:mean``.
 
+  .. warning:: The chosen method must be part of the
+     ``aggregation_methods`` of the archive policy used by every metric
+     it is applied to. Ceilometer's default archive policies (for
+     example ``ceilometer-low``) only compute ``mean`` and
+     ``rate:mean``, so the ``max`` default makes Gnocchi return
+     HTTP 404 on every measures query. CloudKitty logs and skips such
+     metrics without failing, so nothing is rated and no error is
+     surfaced to the operator. Set ``aggregation_method: mean`` (or use
+     an archive policy that computes the desired aggregate).
+
 * ``re_aggregation_method``: Defaults to ``aggregation_method``. The
   re_aggregation method to use when retrieving measures from gnocchi.
 
