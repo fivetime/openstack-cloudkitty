@@ -463,6 +463,12 @@ class TestInfluxClientV2(unittest.TestCase):
         self.assertIn('r["_measurement"] == "dataframes"', query_none)
         self.assertNotIn(' and r.', query_none)
 
+    def test_process_total_filters_none(self):
+        """retrieve() also forwards None straight into process_total()."""
+        out = self.client.process_total([], self.period_begin,
+                                        self.period_end, None, '*', None)
+        self.assertEqual([], out)
+
     def test_delete_end_none_is_bounded(self):
         """delete() must not hand a None bound to the InfluxDB 2 API.
 
