@@ -440,6 +440,59 @@ class TestInfluxClientV2(unittest.TestCase):
 
         self.assertEqual(query, expected)
 
+    def test_query_build_filters_none(self):
+        """A request without filters must not blow up.
+
+        The v2 dataframes API leaves ``filters`` unset when the request
+        carries no filter, and retrieve() forwards it verbatim, so
+        get_query() receives None on a plain GET /v2/dataframes.
+        """
+        custom_fields = 'sum(price) AS price,sum(qty) AS qty'
+
+        query_none = self.client.get_query(begin=self.period_begin,
+                                           end=self.period_end,
+                                           custom_fields=custom_fields,
+                                           filters=None,
+                                           groupby=[])
+        query_empty = self.client.get_query(begin=self.period_begin,
+                                            end=self.period_end,
+                                            custom_fields=custom_fields,
+                                            filters={},
+                                            groupby=[])
+        self.assertEqual(query_empty, query_none)
+        self.assertIn('r["_measurement"] == "dataframes"', query_none)
+        self.assertNotIn(' and r.', query_none)
+
+    def test_delete_end_none_is_bounded(self):
+        """delete() must not hand a None bound to the InfluxDB 2 API.
+
+        The orchestrator's scope-reset path calls delete(begin=<ts>,
+        end=None), and influxdb_client rejects a None ``stop``.
+        """
+        delete_api = self.client.client.delete_api.return_value
+        delete_api.reset_mock()
+
+        self.client.delete(self.period_begin, None, {'project_id': 'abc'})
+
+        args, kwargs = delete_api.delete.call_args
+        self.assertEqual(self.period_begin, args[0])
+        self.assertEqual(influx.INFLUX_MAX_TIME, args[1])
+        self.assertIsNotNone(args[1])
+        self.assertIn('_measurement="dataframes"', kwargs['predicate'])
+        # get_group_filters_query() quotes the key as well as the value
+        self.assertIn('"project_id"="abc"', kwargs['predicate'])
+
+    def test_delete_begin_none_is_bounded(self):
+        """Same as above for a missing lower bound."""
+        delete_api = self.client.client.delete_api.return_value
+        delete_api.reset_mock()
+
+        self.client.delete(None, None, None)
+
+        args, _ = delete_api.delete.call_args
+        self.assertEqual(influx.INFLUX_MIN_TIME, args[0])
+        self.assertEqual(influx.INFLUX_MAX_TIME, args[1])
+
     def test_query_build_no_groupby(self):
         """Test query building when groupby is empty."""
         custom_fields = 'sum(price) AS price,sum(qty) AS qty'
