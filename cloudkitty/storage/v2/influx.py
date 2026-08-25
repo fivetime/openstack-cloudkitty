@@ -38,6 +38,14 @@ CONF.import_opt('period', 'cloudkitty.collector', 'collect')
 
 INFLUX_STORAGE_GROUP = 'storage_influxdb'
 
+# InfluxDB stores timestamps as nanoseconds since the epoch, so these are the
+# widest bounds its delete API accepts. They are used to emulate the "no
+# bound" semantics the v1 backend gets from an omitted WHERE clause.
+INFLUX_MIN_TIME = datetime.datetime(1677, 9, 21, 0, 12, 44,
+                                    tzinfo=datetime.timezone.utc)
+INFLUX_MAX_TIME = datetime.datetime(2262, 4, 11, 23, 47, 16,
+                                    tzinfo=datetime.timezone.utc)
+
 influx_storage_opts = [
     cfg.StrOpt('username', help='InfluxDB username'),
     cfg.StrOpt('password', help='InfluxDB password', secret=True),
@@ -535,6 +543,16 @@ class InfluxClientV2(InfluxClient):
             f = f.replace('==', '=').replace('and', 'AND')
             predicate += f'{f}'
 
+        # InfluxDB 2's delete API rejects a None bound, while the v1 backend
+        # treats a missing bound as unbounded (see _get_time_query_delete).
+        # The orchestrator's scope-reset path always calls this with end=None,
+        # so map None onto the widest range InfluxDB accepts to keep the two
+        # backends behaving the same.
+        if begin is None:
+            begin = INFLUX_MIN_TIME
+        if end is None:
+            end = INFLUX_MAX_TIME
+
         LOG.debug("InfluxDB v2 deleting elements filtering by [%s] and "
                   "with [begin=%s, end=%s].", predicate, begin, end)
         delete_api = self.client.delete_api()
@@ -675,6 +693,11 @@ class InfluxClientV2(InfluxClient):
 
     def get_query(self, begin, end, custom_fields, groupby=None, filters=None,
                   limit=None):
+
+        # retrieve() forwards the caller's filters straight through, and the
+        # v2 dataframes API leaves them unset when the request carries no
+        # filter, so None reaches us on a plain GET /v2/dataframes.
+        filters = filters or {}
 
         custom_fields_processed = list(
             map(lambda x: x[1], self.get_custom_fields(custom_fields)))
