@@ -457,20 +457,51 @@ class InfluxClientV2(InfluxClient):
             LOG.debug("Response sanitized [%s] for InfluxDB V2 API.",
                       self.response)
 
+        # Columns that describe the row itself rather than the point: they
+        # differ between the rows that make up one point, so they must not
+        # take part in the merge key nor survive into the merged point.
+        ROW_COLUMNS = ('', 'result', 'table', '_field', '_value',
+                       '_start', '_stop', '_measurement')
+
         def process_data_wildcard(self):
+            """Merge the per-field rows of a wildcard query back into points.
+
+                Flux returns long-format data: one row per (series, field),
+                so every field of a single dataframe point arrives as its own
+                row, distinguished by _field/_value and sitting in its own
+                table. Group the rows by their tags to rebuild the points
+                _build_dataframes() expects (unit, qty, price, groupby,
+                metadata, ...).
+            """
+
             LOG.debug("Processing wildcard response for InfluxDB V2 API.")
-            found_fields = set()
             for r in self.data:
                 if self.is_header_entry(r):
                     LOG.debug("Skipping header entry: [%s].", r)
                     continue
-                r_key = ''.join(sorted(r.values()))
-                found_fields.add(r['_field'])
-                r_value = r
-                r_value['begin'] = self.begin
-                r_value['end'] = self.end
-                self.response.setdefault(
-                    r_key, r_value)[r['result']] = float(r['_value'])
+
+                tags = {k: v for k, v in r.items()
+                        if k not in self.ROW_COLUMNS}
+                r_key = '|'.join(f'{k}={v}' for k, v in sorted(tags.items()))
+
+                entry = self.response.setdefault(r_key, dict(tags))
+                entry['begin'] = self.begin
+                entry['end'] = self.end
+                # _build_dataframes() keys frames on point['time']; the
+                # wildcard query used to drop _time outright, which is why it
+                # could never have produced a dataframe.
+                if '_time' in entry:
+                    entry['time'] = entry.pop('_time')
+
+                # Only qty, price and the collect period are numeric; unit and
+                # the groupby/metadata keys are strings, and float() on those
+                # is what made this path raise ValueError.
+                value = r['_value']
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    pass
+                entry[r['_field']] = value
 
         def process_data_with_fields(self):
             for r in self.data:
@@ -662,13 +693,26 @@ class InfluxClientV2(InfluxClient):
             if field == '*':
                 group_filter = self.get_group_filters_query(
                     group_filters).replace(" and ", "", 1)
-                filter_to_replace = f'|> filter(fn: (r) => {group_filter})'
+                # With no filters at all there is no predicate to put after
+                # the arrow, and `filter(fn: (r) => )` is a Flux syntax error
+                # -- InfluxDB answers 400 "invalid expression". Drop the whole
+                # stage instead. GET /v2/dataframes takes this path on every
+                # request an admin makes without filters.
+                filter_to_replace = (
+                    f'|> filter(fn: (r) => {group_filter})'
+                    if group_filter else '')
+                # A bare group() merges every series into a single table, and
+                # dataframes carry both numeric (qty, price) and string (tags)
+                # fields, so InfluxDB rejects the drop() that follows with
+                # "schema collision: cannot group integer and string types
+                # together". This path returns raw dataframes, which want the
+                # series kept apart anyway, so drop the grouping stage.
                 new_query += query.replace(
+                    '|> group()', '').replace(
                     '<placeholder-filter>',
                     filter_to_replace).replace(
                     '<placeholder-operations>',
-                    f'''|> drop(columns: ["_time"])
-                      {'|> limit(n: ' + str(limit) + ')' if limit else ''}
+                    f'''{'|> limit(n: ' + str(limit) + ')' if limit else ''}
                         |> yield(name: "result")''')
                 continue
 
@@ -738,6 +782,13 @@ class InfluxClientV2(InfluxClient):
                 'Authorization': f'Token {CONF.storage_influxdb.token}'},
             data=json.dumps({
                 'query': query}))
+        # Without this an error response is parsed as if it were CSV, which
+        # yields no rows -- so a rejected query is indistinguishable from an
+        # empty result and surfaces to the operator as "no data".
+        if not response.ok:
+            LOG.error("InfluxDB rejected query [%s]: HTTP %s %s",
+                      query, response.status_code, response.text)
+            response.raise_for_status()
         response_text = response.text
         LOG.debug("Raw Response: [%s].", response_text)
         handled_response = []
