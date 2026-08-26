@@ -463,6 +463,95 @@ class TestInfluxClientV2(unittest.TestCase):
         self.assertIn('r["_measurement"] == "dataframes"', query_none)
         self.assertNotIn(' and r.', query_none)
 
+    def test_wildcard_query_is_valid_flux_without_filters(self):
+        """A wildcard query with no filters must still compile.
+
+            `filter(fn: (r) => )` is a Flux syntax error, and a bare group()
+            collapses the numeric and string fields of a dataframe into one
+            table, which InfluxDB rejects with a schema collision. _time has
+            to survive as well: _build_dataframes() keys frames on it.
+        """
+        query = self.client.get_query(begin=self.period_begin,
+                                      end=self.period_end,
+                                      custom_fields='*',
+                                      filters=None,
+                                      groupby=None)
+        self.assertNotIn('=> )', query)
+        self.assertNotIn('|> group()', query)
+        self.assertNotIn('drop(columns: ["_time"])', query)
+        self.assertIn('r["_measurement"] == "dataframes"', query)
+
+    def test_wildcard_query_keeps_filters(self):
+        query = self.client.get_query(begin=self.period_begin,
+                                      end=self.period_end,
+                                      custom_fields='*',
+                                      filters={'project_id': 'abc'},
+                                      groupby=None)
+        self.assertIn('filter(fn: (r) => r.project_id=="abc")', query)
+
+    @mock.patch('cloudkitty.storage.v2.influx.requests')
+    def test_query_raises_on_error_response(self, mock_requests):
+        """An error response must not be parsed as if it were a result set.
+
+            Feeding CSV parsing an error body yields no rows, which makes a
+            rejected query indistinguishable from an empty result.
+        """
+        resp = mock.MagicMock()
+        resp.ok = False
+        resp.status_code = 400
+        resp.text = '{"code":"invalid","message":"compilation failed"}'
+        resp.raise_for_status.side_effect = Exception('400 Client Error')
+        mock_requests.post.return_value = resp
+
+        self.assertRaises(Exception, self.client.query, 'from(bucket:"x")')
+        resp.raise_for_status.assert_called_once_with()
+
+    def test_process_data_wildcard_merges_rows_of_one_point(self):
+        """Flux returns one row per field; they must merge back into a point.
+
+            Rows of the same point share their tags but differ in
+            _field/_value and sit in separate tables, so neither may take
+            part in the merge key.
+        """
+        common = {'': '', 'result': 'result', '_measurement': 'dataframes',
+                  '_start': '2026-08-01T00:00:00Z',
+                  '_stop': '2026-09-01T00:00:00Z',
+                  '_time': '2026-08-23T07:00:00Z',
+                  'type': 'image.size', 'project_id': 'p1', 'id': 'r1'}
+        rows = [
+            dict(common, table='0', _field='qty', _value='0.5'),
+            dict(common, table='1', _field='price', _value='0'),
+            dict(common, table='2', _field='unit', _value='GiB'),
+            dict(common, table='3', _field='groupby', _value='id|project_id'),
+        ]
+        handler = influx.InfluxClientV2.FluxResponseHandler(
+            rows, None, ['*'], self.period_begin, self.period_end, [])
+        points = list(handler.response.values())
+
+        self.assertEqual(1, len(points))
+        point = points[0]
+        self.assertEqual(0.5, point['qty'])
+        self.assertEqual(0.0, point['price'])
+        # a string field must survive as a string, not blow up on float()
+        self.assertEqual('GiB', point['unit'])
+        self.assertEqual('id|project_id', point['groupby'])
+        # _build_dataframes() needs 'time'
+        self.assertEqual('2026-08-23T07:00:00Z', point['time'])
+        self.assertEqual('image.size', point['type'])
+
+    def test_process_data_wildcard_keeps_distinct_points_apart(self):
+        common = {'': '', 'result': 'result', '_measurement': 'dataframes',
+                  '_start': '2026-08-01T00:00:00Z',
+                  '_stop': '2026-09-01T00:00:00Z',
+                  '_time': '2026-08-23T07:00:00Z', 'type': 'image.size'}
+        rows = [
+            dict(common, table='0', id='r1', _field='qty', _value='1'),
+            dict(common, table='1', id='r2', _field='qty', _value='2'),
+        ]
+        handler = influx.InfluxClientV2.FluxResponseHandler(
+            rows, None, ['*'], self.period_begin, self.period_end, [])
+        self.assertEqual(2, len(handler.response))
+
     def test_process_total_filters_none(self):
         """retrieve() also forwards None straight into process_total()."""
         out = self.client.process_total([], self.period_begin,
