@@ -743,6 +743,13 @@ class InfluxClientV2(InfluxClient):
                 'Authorization': f'Token {CONF.storage_influxdb.token}'},
             data=json.dumps({'query': query}),
             timeout=CONF.storage_influxdb.timeout)
+        # Without this an error response is parsed as if it were CSV, which
+        # yields no rows -- so a rejected query is indistinguishable from an
+        # empty result and surfaces to the operator as "no data".
+        if not response.ok:
+            LOG.error("InfluxDB rejected query [%s]: HTTP %s %s",
+                      query, response.status_code, response.text)
+            response.raise_for_status()
         response_text = response.text
         LOG.debug("Raw Response: [%s].", response_text)
         handled_response = []

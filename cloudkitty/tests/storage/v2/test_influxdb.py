@@ -20,6 +20,7 @@ import unittest
 from unittest import mock
 
 from dateutil import tz
+import requests
 
 from cloudkitty import dataframe
 from cloudkitty.storage.v2 import influx
@@ -544,3 +545,22 @@ class TestInfluxClientV2(unittest.TestCase):
                                       filters=filters,
                                       groupby=groupby)
         self.assertEqual(query, expected)
+
+    @mock.patch('cloudkitty.storage.v2.influx.requests')
+    def test_query_raises_on_error_response(self, mock_requests):
+        """An error response must not be parsed as if it were a result set.
+
+            Feeding CSV parsing an error body yields no rows, which makes a
+            rejected query indistinguishable from an empty result.
+        """
+        resp = mock.MagicMock()
+        resp.ok = False
+        resp.status_code = 400
+        resp.text = '{"code":"invalid","message":"compilation failed"}'
+        resp.raise_for_status.side_effect = (
+            requests.exceptions.HTTPError('400 Client Error'))
+        mock_requests.post.return_value = resp
+
+        self.assertRaises(requests.exceptions.HTTPError,
+                          self.client.query, 'from(bucket:"x")')
+        resp.raise_for_status.assert_called_once_with()
