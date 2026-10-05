@@ -566,6 +566,11 @@ class InfluxClientV2(InfluxClient):
 
     def process_total(self, total, begin, end, groupby, custom_fields,
                       filters):
+        # retrieve() and InfluxStorage.total() both forward the caller's
+        # filters unchanged, so None reaches us whenever the request carried
+        # no filter.
+        filters = filters or {}
+
         cf = self.get_custom_fields(custom_fields)
         fields = list(map(lambda f: f[2], cf))
         c_fields = {f[1]: f[2] for f in cf}
