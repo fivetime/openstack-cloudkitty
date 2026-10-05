@@ -427,7 +427,6 @@ class TestInfluxClientV2(unittest.TestCase):
               |> filter(fn: (r) => r.filter1==10 and r.filter2=="filter
               2_filter")
               |> group(columns: ["group1","group2","group3"])
-              |> drop(columns: ["_time"])
               |> yield(name: "result")'''.replace(
             ' ', '').replace('\n', '').replace('\t', ''))
 
