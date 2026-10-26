@@ -117,6 +117,7 @@ class MetricConfigValidationTest(tests.TestCase):
             'resource_type': 'res',
             'resource_key': 'id',
             'use_all_resource_revisions': True,
+            'use_history': True,
             'custom_query': ''}
 
         self.assertEqual(

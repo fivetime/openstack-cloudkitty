@@ -188,7 +188,8 @@ class GnocchiCollectorAggregationOperationTest(tests.TestCase):
         self.start = datetime.datetime(2019, 1, 1, tzinfo=tz.tzutc())
         self.end = datetime.datetime(2019, 1, 1, 1, tzinfo=tz.tzutc())
 
-    def do_test(self, expected_op, extra_args=None, conf=None):
+    def do_test(self, expected_op, extra_args=None, conf=None,
+                use_history=True):
         conf = conf or {
             'metrics': {
                 'metric_one': {
@@ -212,7 +213,7 @@ class GnocchiCollectorAggregationOperationTest(tests.TestCase):
                     search={'=': {'type': 'resource_x'}},
                     start=self.start, stop=self.end,
                     granularity=3600,
-                    use_history=True
+                    use_history=use_history
                 )
 
     def test_multiple_confs(self):
@@ -233,6 +234,16 @@ class GnocchiCollectorAggregationOperationTest(tests.TestCase):
         }
         expected_op = ["aggregate", "max", ["metric", "metric_one", "max"]]
         self.do_test(expected_op, conf=conf)
+
+    def test_use_history_default(self):
+        extra_args = {'resource_type': 'resource_x'}
+        expected_op = ["aggregate", "max", ["metric", "metric_one", "max"]]
+        self.do_test(expected_op, extra_args=extra_args, use_history=True)
+
+    def test_use_history_disabled(self):
+        extra_args = {'resource_type': 'resource_x', 'use_history': False}
+        expected_op = ["aggregate", "max", ["metric", "metric_one", "max"]]
+        self.do_test(expected_op, extra_args=extra_args, use_history=False)
 
     def test_no_agg_no_re_agg(self):
         extra_args = {'resource_type': 'resource_x'}

@@ -114,6 +114,12 @@ GNOCCHI_EXTRA_SCHEMA = {
             In(BASIC_AGGREGATION_METHODS),
         Required('force_granularity', default=3600): All(int, Range(min=0)),
         Required('use_all_resource_revisions', default=True): All(bool),
+        # Query the aggregates API with 'use_history', which splits the
+        # query by resource revision and weighs each revision's values by
+        # the share of the granularity it covers. That suits averages, but
+        # shrinks sums (for instance a custom query resampling with 'sum'),
+        # so operators can turn it off per metric.
+        Required('use_history', default=True): All(bool),
         # Provide means for operators to customize the aggregation query
         # executed against Gnocchi. By default we use the following:
         #
@@ -353,7 +359,7 @@ class GnocchiCollector(collector.BaseCollector):
             'resource_type': resource_type,
             'start': start,
             'stop': end,
-            'use_history': True,
+            'use_history': extra_args['use_history'],
             'groupby': self.conf[metric_name]['groupby'],
             'search': self.extend_filter(*query_parameters),
         }

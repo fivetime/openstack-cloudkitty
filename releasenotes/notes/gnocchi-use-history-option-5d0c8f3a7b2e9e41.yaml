@@ -1,0 +1,13 @@
+---
+features:
+  - |
+    The Gnocchi collector has a new ``use_history`` option in the
+    ``extra_args`` of a metric. It defaults to ``True``, the current behavior,
+    which queries Gnocchi's aggregates API with ``use_history=true``.
+fixes:
+  - |
+    Gnocchi's ``use_history`` mode weighs the values of each resource revision
+    by the share of the granularity that the revision covers, which shrinks
+    sums, for instance when a ``custom_query`` resamples measures with
+    ``sum``. Such metrics can now set ``use_history: false`` in their
+    ``extra_args`` to be rated on the sum of their measures.

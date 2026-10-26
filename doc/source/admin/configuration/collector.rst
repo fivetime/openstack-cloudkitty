@@ -403,6 +403,18 @@ Gnocchi
   CloudKitty for a resource id. The default behavior is maintained, which
   means, CloudKitty always use all of the data points returned.
 
+* ``use_history``: Defaults to ``True``. Whether to query Gnocchi's
+  aggregates API with ``use_history=true``, which uses the attributes each
+  resource had at the time of the measures (see ``use_all_resource_revisions``
+  above). In that mode, Gnocchi splits the query by resource revision and
+  multiplies each revision's values by the share of the granularity that the
+  revision covers. This is correct for averages, but it shrinks sums: a
+  ``custom_query`` such as ``(aggregate RE_AGGREGATION_METHOD (resample sum
+  3600 (metric METRIC_NAME AGGREGATION_METHOD)))`` returns less than the sum
+  of the measures for a resource that changed during the period. Set it to
+  ``False`` for such metrics; the current attributes of the resources are then
+  used.
+
 * ``custom_query``: Provide means for operators to customize the aggregation
   query executed against Gnocchi. By default we use the following ``(aggregate
   RE_AGGREGATION_METHOD (metric METRIC_NAME AGGREGATION_METHOD))``. Therefore,
