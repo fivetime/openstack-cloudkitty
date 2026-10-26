@@ -210,7 +210,14 @@ class GnocchiCollectorAggregationOperationTest(tests.TestCase):
                     expected_op,
                     groupby=['project_id', 'id'],
                     resource_type='resource_x',
-                    search={'=': {'type': 'resource_x'}},
+                    search={'and': [
+                        {'=': {'type': 'resource_x'}},
+                        {'or': [
+                            {'=': {'ended_at': None}},
+                            {'>=': {'ended_at': '2018-12-31T23:00:00+00:00'}},
+                        ]},
+                        {'<=': {'started_at': '2019-01-01T02:00:00+00:00'}},
+                    ]},
                     start=self.start, stop=self.end,
                     granularity=3600,
                     use_history=use_history
@@ -234,6 +241,37 @@ class GnocchiCollectorAggregationOperationTest(tests.TestCase):
         }
         expected_op = ["aggregate", "max", ["metric", "metric_one", "max"]]
         self.do_test(expected_op, conf=conf)
+
+    def test_measures_and_resources_share_time_window(self):
+        conf = {
+            'metrics': {
+                'metric_one': {
+                    'unit': 'GiB',
+                    'groupby': ['project_id'],
+                    'metadata': ['name'],
+                    'extra_args': {'resource_type': 'resource_x'},
+                }
+            }
+        }
+        coll = gnocchi.GnocchiCollector(period=3600, conf=conf)
+        with mock.patch.object(coll._conn.aggregates, 'fetch',
+                               return_value=[]) as fetch_mock, \
+                mock.patch.object(coll._conn.resource, 'search',
+                                  return_value=[]) as search_mock:
+            coll.fetch_all('metric_one', self.start, self.end,
+                           project_id='p1')
+        measures_query = fetch_mock.call_args.kwargs['search']['and']
+        resources_query = search_mock.call_args.kwargs['query']['and']
+        time_filter = [
+            {'or': [
+                {'=': {'ended_at': None}},
+                {'>=': {'ended_at': '2018-12-31T23:00:00+00:00'}},
+            ]},
+            {'<=': {'started_at': '2019-01-01T02:00:00+00:00'}},
+        ]
+        for clause in time_filter:
+            self.assertIn(clause, measures_query)
+            self.assertIn(clause, resources_query)
 
     def test_use_history_default(self):
         extra_args = {'resource_type': 'resource_x'}

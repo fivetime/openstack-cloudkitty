@@ -1,0 +1,9 @@
+---
+fixes:
+  - |
+    The Gnocchi collector now restricts its aggregates query to the resources
+    that may have measures in the collected period, the same ones it fetches
+    the metadata of. Before, it queried every resource of the scope, ended
+    long ago or not, so a single old metric lacking the requested granularity
+    (for instance after an archive policy change) made Gnocchi reject the
+    query and the scope's collection failed on every cycle.

@@ -266,6 +266,20 @@ class GnocchiCollector(collector.BaseCollector):
             self.gen_filter(cop="<=", started_at=end.isoformat()))
         return time_filter
 
+    def _generate_resource_time_filter(self, start, end):
+        """Filter on the resources that may have measures in a timeframe.
+
+        :param start: Start of the timeframe.
+        :param end: End of the timeframe.
+        """
+        # FIXME(peschk_l): In order not to miss any resource whose metrics may
+        # contain measures after its destruction, we scan resources over three
+        # collect periods.
+        delta = timedelta(seconds=CONF.collect.period)
+        start = tzutils.substract_delta(start, delta)
+        end = tzutils.add_delta(end, delta)
+        return self._generate_time_filter(start, end)
+
     def _fetch_resources(self, metric_name, start, end,
                          project_id=None, q_filter=None):
         """Get resources during the timeframe.
@@ -285,14 +299,7 @@ class GnocchiCollector(collector.BaseCollector):
         scope_key = CONF.collect.scope_key
 
         # Build query
-
-        # FIXME(peschk_l): In order not to miss any resource whose metrics may
-        # contain measures after its destruction, we scan resources over three
-        # collect periods.
-        delta = timedelta(seconds=CONF.collect.period)
-        start = tzutils.substract_delta(start, delta)
-        end = tzutils.add_delta(end, delta)
-        query_parameters = self._generate_time_filter(start, end)
+        query_parameters = self._generate_resource_time_filter(start, end)
 
         if project_id:
             kwargs = {scope_key: project_id}
@@ -355,6 +362,11 @@ class GnocchiCollector(collector.BaseCollector):
 
         query_parameters = self.build_query_parameters(project_id, q_filter,
                                                        resource_type)
+        # Query the same resources as _fetch_resources(): with metadata,
+        # the measures of the others would be dropped anyway, and Gnocchi
+        # rejects the whole query when one of their metrics lacks the
+        # requested granularity (an archive policy changed since).
+        query_parameters += self._generate_resource_time_filter(start, end)
         agg_kwargs = {
             'resource_type': resource_type,
             'start': start,
