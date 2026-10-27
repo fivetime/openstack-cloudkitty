@@ -1,0 +1,12 @@
+---
+fixes:
+  - |
+    The Gnocchi collector and fetcher now apply the ``timeout`` option of
+    their ``[collector_gnocchi]`` and ``[fetcher_gnocchi]`` sections, which
+    was ignored. When it is not set, requests time out after
+    ``[orchestrator]collector_request_timeout``, instead of waiting forever.
+    A request that Gnocchi, or a proxy in front of it, never answered kept
+    its thread and its connection after the orchestrator gave up on the
+    collection, and each processing cycle left more of them behind, until
+    the API server ran out of workers. The thread pool of each scope
+    processing is now shut down when it ends as well.

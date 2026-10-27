@@ -82,6 +82,8 @@ ks_loading.register_auth_conf_options(
     cfg.CONF,
     FETCHER_GNOCCHI_OPTS)
 CONF = cfg.CONF
+CONF.import_opt('collector_request_timeout', 'cloudkitty.orchestrator',
+                'orchestrator')
 
 
 class GnocchiFetcher(fetcher.BaseFetcher):
@@ -112,10 +114,15 @@ class GnocchiFetcher(fetcher.BaseFetcher):
         elif CONF.fetcher_gnocchi.insecure:
             verify = False
 
+        # A request without a timeout that is never answered would block the
+        # processor forever, see the Gnocchi collector.
+        timeout = (CONF.fetcher_gnocchi.timeout or
+                   CONF.orchestrator.collector_request_timeout)
+
         self._conn = gclient.Client(
             '1',
             session=custom_session.create_custom_session(
-                {'auth': auth_plugin, 'verify': verify},
+                {'auth': auth_plugin, 'verify': verify, 'timeout': timeout},
                 CONF.fetcher_gnocchi.http_pool_maxsize),
             adapter_options=adapter_options,
         )

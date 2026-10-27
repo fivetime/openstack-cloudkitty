@@ -879,6 +879,16 @@ class WorkerTest(tests.TestCase):
         self.worker.run()
 
         self.assertEqual(execute_worker_processing_mock.call_count, 3)
+        self.assertTrue(self.worker.thread_executor._shutdown)
+
+    @mock.patch("cloudkitty.orchestrator.Worker.execute_worker_processing")
+    def test_run_shuts_thread_executor_down_on_error(
+            self, execute_worker_processing_mock):
+        execute_worker_processing_mock.side_effect = TimeoutError
+
+        self.assertRaises(TimeoutError, self.worker.run)
+
+        self.assertTrue(self.worker.thread_executor._shutdown)
 
     def test_collect_no_data(self):
         metric = "metric1"

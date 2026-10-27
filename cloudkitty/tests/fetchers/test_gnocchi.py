@@ -133,3 +133,14 @@ class GnocchiFetcherTest(tests.TestCase):
                               'some_other_project_id3',
                               'some_replicated_id_project']}}})
             ], any_order=False)
+
+    def test_session_timeout_defaults_to_collector_request_timeout(self):
+        self.conf.set_override(
+            'collector_request_timeout', 120, 'orchestrator')
+        self.assertEqual(
+            120, gnocchi.GnocchiFetcher()._conn.api.session.timeout)
+
+    def test_session_timeout_from_configuration(self):
+        self.conf.set_override('timeout', 30, 'fetcher_gnocchi')
+        self.assertEqual(
+            30, gnocchi.GnocchiFetcher()._conn.api.session.timeout)

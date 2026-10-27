@@ -80,6 +80,8 @@ ks_loading.register_auth_conf_options(cfg.CONF, COLLECTOR_GNOCCHI_OPTS)
 cfg.CONF.register_opts(collector_gnocchi_opts, COLLECTOR_GNOCCHI_OPTS)
 
 CONF = cfg.CONF
+CONF.import_opt('collector_request_timeout', 'cloudkitty.orchestrator',
+                'orchestrator')
 
 # According to 'gnocchi/rest/aggregates/operations.py#AGG_MAP' and
 # 'gnocchi/archive_policy.py#VALID_AGGREGATION_METHODS' the following are the
@@ -176,10 +178,19 @@ class GnocchiCollector(collector.BaseCollector):
         elif CONF.collector_gnocchi.insecure:
             verify = False
 
+        # Without a timeout, a request that Gnocchi (or a proxy in front of
+        # it) never answers blocks its thread and keeps its connection open
+        # forever, even after the orchestrator stopped waiting for it. Each
+        # collection cycle then leaves more of them behind, until the API
+        # server runs out of workers. Do not wait longer than the
+        # orchestrator does unless the operator asked for it.
+        timeout = (CONF.collector_gnocchi.timeout or
+                   CONF.orchestrator.collector_request_timeout)
+
         self._conn = gclient.Client(
             '1',
             session=custom_session.create_custom_session(
-                {'auth': auth_plugin, 'verify': verify},
+                {'auth': auth_plugin, 'verify': verify, 'timeout': timeout},
                 CONF.collector_gnocchi.http_pool_maxsize),
             adapter_options=adapter_options,
         )

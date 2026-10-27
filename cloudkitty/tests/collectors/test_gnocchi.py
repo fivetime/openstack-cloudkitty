@@ -14,9 +14,11 @@
 #    under the License.
 #
 import datetime
+import socket
 from unittest import mock
 
 from dateutil import tz
+from gnocchiclient import exceptions as gexceptions
 
 from cloudkitty.collector import gnocchi
 from cloudkitty import tests
@@ -35,6 +37,38 @@ class GnocchiCollectorTest(tests.TestCase):
             period=3600,
             conf=samples.DEFAULT_METRICS_CONF,
         )
+
+    def _new_collector(self):
+        return gnocchi.GnocchiCollector(
+            period=3600,
+            conf=samples.DEFAULT_METRICS_CONF,
+        )
+
+    def test_session_timeout_defaults_to_collector_request_timeout(self):
+        self.conf.set_override(
+            'collector_request_timeout', 120, 'orchestrator')
+        self.assertEqual(120, self._new_collector()._conn.api.session.timeout)
+
+    def test_session_timeout_from_configuration(self):
+        self.conf.set_override('timeout', 30, 'collector_gnocchi')
+        self.assertEqual(30, self._new_collector()._conn.api.session.timeout)
+
+    def test_unanswered_request_times_out(self):
+        # A server that accepts the connection but never answers, like an
+        # API server whose workers are all busy.
+        server = socket.socket()
+        self.addCleanup(server.close)
+        server.bind(('127.0.0.1', 0))
+        server.listen()
+        self.conf.set_override(
+            'gnocchi_endpoint',
+            'http://127.0.0.1:%d' % server.getsockname()[1],
+            'collector_gnocchi')
+        self.conf.set_override('timeout', 1, 'collector_gnocchi')
+
+        self.assertRaises(gexceptions.ConnectionTimeout,
+                          self._new_collector()._conn.resource.search,
+                          resource_type='generic')
 
     def test_format_data_raises_exception(self):
         metconf = {'extra_args': {'resource_key': 'id'}}

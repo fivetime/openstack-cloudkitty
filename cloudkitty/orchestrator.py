@@ -391,9 +391,15 @@ class Worker(BaseWorker):
         return dict(filter(lambda x: x[1] is not None, results))
 
     def run(self):
-        should_continue_processing = self.execute_worker_processing()
-        while should_continue_processing:
+        try:
             should_continue_processing = self.execute_worker_processing()
+            while should_continue_processing:
+                should_continue_processing = self.execute_worker_processing()
+        finally:
+            # A worker is created for each scope on each cycle: release its
+            # threads instead of leaving them to the garbage collector, and
+            # drop the collections that a timeout left queued.
+            self.thread_executor.shutdown(wait=False, cancel_futures=True)
 
     def execute_worker_processing(self):
         timestamp = self.next_timestamp_to_process()
