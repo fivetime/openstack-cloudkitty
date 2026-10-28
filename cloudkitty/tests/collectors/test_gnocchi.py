@@ -13,12 +13,16 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 #
+from concurrent import futures
 import datetime
+from http import server as http_server
 import socket
+import threading
 from unittest import mock
 
 from dateutil import tz
 from gnocchiclient import exceptions as gexceptions
+from urllib3 import connectionpool
 
 from cloudkitty.collector import gnocchi
 from cloudkitty import tests
@@ -69,6 +73,58 @@ class GnocchiCollectorTest(tests.TestCase):
         self.assertRaises(gexceptions.ConnectionTimeout,
                           self._new_collector()._conn.resource.search,
                           resource_type='generic')
+
+    def _pool_size(self, collector):
+        return collector._conn.api.session.session.adapters[
+            'http://']._pool_maxsize
+
+    def test_pool_size_defaults_to_max_threads(self):
+        self.conf.set_override('max_threads', 24, 'orchestrator')
+        self.assertEqual(24, self._pool_size(self._new_collector()))
+
+    def test_pool_size_from_configuration(self):
+        self.conf.set_override('max_threads', 24, 'orchestrator')
+        self.conf.set_override('http_pool_maxsize', 30, 'collector_gnocchi')
+        self.assertEqual(30, self._pool_size(self._new_collector()))
+
+    def test_concurrent_collections_keep_their_connections(self):
+        # As many requests at the same time as the orchestrator runs
+        # collections: none of their connections may be thrown away.
+        threads = 16
+        barrier = threading.Barrier(threads, timeout=10)
+
+        class Handler(http_server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'
+
+            def do_GET(self):
+                if self.path.endswith('/wait'):
+                    barrier.wait()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', '2')
+                self.end_headers()
+                self.wfile.write(b'[]')
+
+            def log_message(self, *args):
+                pass
+
+        server = http_server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.conf.set_override(
+            'gnocchi_endpoint',
+            'http://127.0.0.1:%d' % server.server_address[1],
+            'collector_gnocchi')
+        self.conf.set_override('max_threads', threads, 'orchestrator')
+        api = self._new_collector()._conn.api
+
+        with mock.patch.object(connectionpool.log, 'warning') as warning:
+            with futures.ThreadPoolExecutor(threads) as executor:
+                list(executor.map(lambda _: api.get('/v1/wait'),
+                                  range(threads)))
+        warning.assert_not_called()
 
     def test_format_data_raises_exception(self):
         metconf = {'extra_args': {'resource_key': 'id'}}

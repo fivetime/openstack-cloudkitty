@@ -1,0 +1,11 @@
+---
+fixes:
+  - |
+    The connection pool of the Gnocchi collector now holds as many
+    connections as the orchestrator runs collections at the same time:
+    ``[collector_gnocchi]http_pool_maxsize`` defaults to
+    ``[orchestrator]max_threads``. It held 10 while ``max_threads``
+    defaults to 16, so the connections of the other collections were
+    closed after each request, with a ``Connection pool is full,
+    discarding connection`` warning each time, and new connections were
+    opened for the next requests.

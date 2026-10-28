@@ -15,7 +15,6 @@
 #
 import copy
 from datetime import timedelta
-import requests
 
 from gnocchiclient import auth as gauth
 from gnocchiclient import client as gclient
@@ -69,9 +68,10 @@ collector_gnocchi_opts = [
     ),
     cfg.IntOpt(
         'http_pool_maxsize',
-        default=requests.adapters.DEFAULT_POOLSIZE,
-        help='If the value is not defined, we use the value defined by '
-             'requests.adapters.DEFAULT_POOLSIZE',
+        min=1,
+        help='Maximum number of connections to Gnocchi kept open for reuse. '
+             'Defaults to [orchestrator]max_threads, the number of '
+             'collections that run at the same time.',
     )
 ]
 
@@ -82,6 +82,7 @@ cfg.CONF.register_opts(collector_gnocchi_opts, COLLECTOR_GNOCCHI_OPTS)
 CONF = cfg.CONF
 CONF.import_opt('collector_request_timeout', 'cloudkitty.orchestrator',
                 'orchestrator')
+CONF.import_opt('max_threads', 'cloudkitty.orchestrator', 'orchestrator')
 
 # According to 'gnocchi/rest/aggregates/operations.py#AGG_MAP' and
 # 'gnocchi/archive_policy.py#VALID_AGGREGATION_METHODS' the following are the
@@ -187,11 +188,18 @@ class GnocchiCollector(collector.BaseCollector):
         timeout = (CONF.collector_gnocchi.timeout or
                    CONF.orchestrator.collector_request_timeout)
 
+        # The orchestrator runs up to max_threads collections at the same
+        # time with this collector. With fewer connections in the pool, the
+        # connections of the others are closed after each request, and a new
+        # one is opened for the next.
+        pool_size = (CONF.collector_gnocchi.http_pool_maxsize or
+                     CONF.orchestrator.max_threads)
+
         self._conn = gclient.Client(
             '1',
             session=custom_session.create_custom_session(
                 {'auth': auth_plugin, 'verify': verify, 'timeout': timeout},
-                CONF.collector_gnocchi.http_pool_maxsize),
+                pool_size),
             adapter_options=adapter_options,
         )
 
